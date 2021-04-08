@@ -2,4 +2,4 @@ pytest-pudb
 jedi
 astor
 GitPython
-
+matplotlib

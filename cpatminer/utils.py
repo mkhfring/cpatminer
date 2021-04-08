@@ -1,8 +1,11 @@
 import os
 import csv
 import queue
+from functools import partial
 
 import git
+
+from cpatminer.ast_tree import AnalysisNodeVisitor
 
 
 def create_data_directory(repo_list):
@@ -29,6 +32,7 @@ def read_csv_file(filename):
 
     return repo_list_result[0]
 
+
 def read_python_files():
     python_file_list = []
     for root, dirs, files in os.walk("data"):
@@ -40,8 +44,22 @@ def read_python_files():
     return python_file_list
 
 
+def calculate_node_numbers(tree_list):
+    number_of_nodes = 0
+    for ast_tree in tree_list:
+        tree = AnalysisNodeVisitor(ast_tree)
+        tree_call = partial(tree.generic_visit, ast_tree.parsed_code)
+        tree_call()
+        number_of_nodes += len(tree.tree.nodes)
+
+    return number_of_nodes
+
+
 def topological_sort(tree):
     tree = tree.tree
+    for node in tree.nodes:
+        node.max_level = -1
+
     rank_queue = queue.Queue()
     for node in tree.nodes:
         max_level = 0

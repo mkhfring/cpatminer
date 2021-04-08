@@ -4,6 +4,8 @@ from datetime import datetime
 from functools import partial
 import os
 import timeit
+import threading
+import asyncio
 
 
 class Node:
@@ -39,60 +41,70 @@ class AnalysisNodeVisitor(ast.NodeTransformer):
 
     def visit_Assign(self, node):
         node.node_type = 'assign'
+        node.genune_type = 'operation'
         node.name = type(node).__name__
         self._analyse_node(node)
 #        print('Node type: Assign and fields: ', node._fields)
 
     def visit_Compare(self, node):
         node.node_type = 'compare'
+        node.genune_type = 'operation'
         node.name = type(node).__name__
         self._analyse_node(node)
 #        print('Node type: Assign and fields: ', node._fields)
 
     def visit_BinOp(self, node):
         node.node_type = 'bin_op'
+        node.genune_type = 'operation'
         node.name = type(node).__name__
         self._analyse_node(node)
 #        print('Node type: BinOp and fields: ', node._fields)
 
     def visit_Expr(self, node):
         node.node_type = 'expression'
+        node.genune_type = 'operation'
         node.name = type(node).__name__
         self._analyse_node(node)
 #        print('Node type: Expr and fields: ', node._fields)
 
     def visit_Num(self,node):
         node.node_type = 'number'
+        node.genune_type = 'data'
         node.name = type(node).__name__
         self._analyse_node(node)
 #        print('Node type: Num and fields: ', node._fields)
 
     def visit_Name(self, node):
         node.node_type = 'name'
+        node.genune_type = 'data'
         node.name = type(node).__name__
         self._analyse_node(node)
 #        print('Node type: Name and fields: ', node._fields)
 
     def visit_Str(self, node):
         node.node_type = 'string'
+        node.genune_type = 'data'
         node.name = type(node).__name__
         self._analyse_node(node)
 #        print('Node type: Str and fields: ', node._fields)
 
     def visit_If(self, node):
         node.node_type = 'if_control'
+        node.genune_type = 'control'
         node.name = type(node).__name__
         self._analyse_node(node)
         assert 1 == 1
 
     def visit_While(self, node):
         node.node_type = 'while'
+        node.genune_type = 'control'
         node.name = type(node).__name__
         self._analyse_node(node)
         assert 1 == 1
 
     def visit_For(self, node):
         node.node_type = 'for'
+        node.genune_type = 'control'
         node.name = type(node).__name__
         self._analyse_node(node)
         assert 1 == 1
@@ -100,6 +112,7 @@ class AnalysisNodeVisitor(ast.NodeTransformer):
 
     def visit_Call(self,node):
         node.node_type = 'call'
+        node.genune_type = 'func'
         node.name = type(node).__name__
         self._analyse_node(node)
         """ visit a Call node """
@@ -107,6 +120,7 @@ class AnalysisNodeVisitor(ast.NodeTransformer):
 
     def visit_Lambda(self,node):
         node.node_type = 'function'
+        node.genune_type = 'func'
         node.name = type(node).__name__
         self._analyse_node(node)
         """ visit a Function node """
@@ -114,6 +128,7 @@ class AnalysisNodeVisitor(ast.NodeTransformer):
 
     def visit_FunctionDef(self,node):
         node.node_type = 'function_def'
+        node.genune_type = 'func'
         node.name = type(node).__name__
         self._analyse_node(node)
 
@@ -139,6 +154,42 @@ class AnalysisNodeVisitor(ast.NodeTransformer):
             node.children = children
             for child in children:
                 self.creat_node_tree_recursive(child)
+
+    def prune(self, delta):
+        for index, node in enumerate(self.tree.nodes):
+            if hasattr(node, 'max_level'):
+                if node.max_level < delta:
+                    del self.tree.nodes[index]
+            else:
+                del self.tree.nodes[index]
+
+        return self
+
+
+class CreatCluster(ast.NodeTransformer):
+
+    def __init__(self):
+        self.unique_id = 1
+        self.cluster = []
+
+    def generic_visit(self, node):
+        self.create_clusters(node)
+        ast.NodeTransformer.generic_visit(self, node)
+
+    def create_clusters(self, node):
+        if hasattr(node, 'genune_type'):
+            if node.genune_type == 'func':
+                self.cluster.append(node)
+            else:
+                if node.genune_type in ['data', 'operation', 'controll']:
+                    if self.has_output_link(node):
+                        self.cluster.append(node)
+
+        ast.NodeTransformer.generic_visit(self, node)
+
+    def has_output_link(self, node):
+        outputs = [node for node in ast.iter_child_nodes(node)]
+        return len(outputs) == 0
 
 
 class AstGraphGenerator(object):
@@ -193,20 +244,56 @@ def create_tree_bfs(ast_tree):
         ast_tree.nodes.append(current_node)
 
 
-def calculate_run_time(ast_tree, number_of_execution=1):
+def run_first_experiment(ast_tree_list):
+    for ast_tree in ast_tree_list:
+        tree = AnalysisNodeVisitor(ast_tree)
+        tree_call = partial(tree.generic_visit, ast_tree.parsed_code)
+        tree_call()
+        cluster_tree = CreatCluster()
+        for node in tree.tree.nodes:
+            cluster_tree.generic_visit(node)
+
+        assert 1 == 1
+
+
+async def calculate_run_time(ast_tree, number_of_execution=1):
     tree = AnalysisNodeVisitor(ast_tree)
     tree_call = partial(tree.generic_visit, ast_tree.parsed_code)
     tree_call()
-    print(
-        ast_tree.file_name,
-        "Runnig time: " + str(
-        timeit.timeit(
+    timeit.timeit(
         tree_call,
         number=100)
-        ),
-        f"|||| number of nodes: {len(tree.tree.nodes)}"
-    )
     assert 1 == 1
+
+
+def create_cluster_with_thread(ast_tree):
+    tree = AnalysisNodeVisitor(ast_tree)
+    tree_call = partial(tree.generic_visit, ast_tree.parsed_code)
+    tree_call()
+    tree.prune(3)
+    cluster_tree = CreatCluster()
+    for node in tree.tree.nodes:
+        cluster_tree.generic_visit(node)
+
+
+def run_second_experiment(ast_tree_list):
+    for ast_tree in ast_tree_list:
+        t = threading.Thread(target=create_cluster_with_thread, args=(ast_tree, ))
+        t.start()
+        # create_cluster_with_thread(ast_tree)
+        # tree = AnalysisNodeVisitor(ast_tree)
+        # tree_call = partial(tree.generic_visit, ast_tree.parsed_code)
+        # tree_call()
+        # tree.prune(3)
+        # cluster_tree = CreatCluster()
+        # for node in tree.tree.nodes:
+        #     cluster_tree.generic_visit(node)
+
+
+    # for ast_tree in ast_tree_list:
+    #     await asyncio.gather(calculate_run_time(ast_tree))
+        # t = threading.Thread(target=calculate_run_time, args=(ast_tree, ))
+    #     t.start()
 
 
 if __name__ == "__main__":
