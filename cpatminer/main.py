@@ -1,4 +1,5 @@
 import timeit
+import queue
 from functools import partial
 
 import matplotlib.pyplot as plt

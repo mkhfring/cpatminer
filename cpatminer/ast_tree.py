@@ -1,4 +1,5 @@
 import ast
+import queue
 from collections import defaultdict
 from datetime import datetime
 from functools import partial
@@ -8,11 +9,43 @@ import threading
 import asyncio
 
 
+def topological_sort(tree):
+    tree = tree.tree
+    for node in tree.nodes:
+        node.max_level = -1
+
+    rank_queue = queue.Queue()
+    for node in tree.nodes:
+        max_level = 0
+        if hasattr(node, 'marked'):
+            continue
+        root = node
+        root.level = 0
+        rank_queue.put(root)
+        root.marked = True
+        while not rank_queue.empty():
+            current_node = rank_queue.get()
+            if not hasattr(current_node, 'children'):
+                break
+            for child in current_node.children:
+                if not hasattr(child, 'marked'):
+                    rank_queue.put(child)
+                    child.level = current_node.level + 1
+                    if child.level > max_level:
+                        max_level = child.level
+                    child.marked = True
+
+        node.max_level = max_level
+
+    return tree
+
+
 class Node:
     def __init__(self, node):
         self.node = node
         self.name = None
         self.childs = []
+
 
 class AstTree:
 
@@ -179,17 +212,19 @@ class CreatCluster(ast.NodeTransformer):
     def create_clusters(self, node):
         if hasattr(node, 'genune_type'):
             if node.genune_type == 'func':
-                self.cluster.append(node)
+                if node not in self.cluster:
+                    self.cluster.append(node)
             else:
                 if node.genune_type in ['data', 'operation', 'controll']:
                     if self.has_output_link(node):
-                        self.cluster.append(node)
+                        if node not in self.cluster:
+                            self.cluster.append(node)
 
         ast.NodeTransformer.generic_visit(self, node)
 
     def has_output_link(self, node):
         outputs = [node for node in ast.iter_child_nodes(node)]
-        return len(outputs) == 0
+        return len(outputs) != 0
 
 
 class AstGraphGenerator(object):
@@ -243,7 +278,7 @@ def create_tree_bfs(ast_tree):
 
         ast_tree.nodes.append(current_node)
 
-
+#
 def run_first_experiment(ast_tree_list):
     for ast_tree in ast_tree_list:
         tree = AnalysisNodeVisitor(ast_tree)
@@ -256,7 +291,7 @@ def run_first_experiment(ast_tree_list):
         assert 1 == 1
 
 
-async def calculate_run_time(ast_tree, number_of_execution=1):
+def calculate_run_time(ast_tree, number_of_execution=1):
     tree = AnalysisNodeVisitor(ast_tree)
     tree_call = partial(tree.generic_visit, ast_tree.parsed_code)
     tree_call()
@@ -270,6 +305,8 @@ def create_cluster_with_thread(ast_tree):
     tree = AnalysisNodeVisitor(ast_tree)
     tree_call = partial(tree.generic_visit, ast_tree.parsed_code)
     tree_call()
+    topological_sort(tree)
+
     tree.prune(3)
     cluster_tree = CreatCluster()
     for node in tree.tree.nodes:
@@ -280,21 +317,6 @@ def run_second_experiment(ast_tree_list):
     for ast_tree in ast_tree_list:
         t = threading.Thread(target=create_cluster_with_thread, args=(ast_tree, ))
         t.start()
-        # create_cluster_with_thread(ast_tree)
-        # tree = AnalysisNodeVisitor(ast_tree)
-        # tree_call = partial(tree.generic_visit, ast_tree.parsed_code)
-        # tree_call()
-        # tree.prune(3)
-        # cluster_tree = CreatCluster()
-        # for node in tree.tree.nodes:
-        #     cluster_tree.generic_visit(node)
-
-
-    # for ast_tree in ast_tree_list:
-    #     await asyncio.gather(calculate_run_time(ast_tree))
-        # t = threading.Thread(target=calculate_run_time, args=(ast_tree, ))
-    #     t.start()
-
 
 if __name__ == "__main__":
 
